@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b3142" />
+    <meta name="description" content="一套面向近期心理困扰的90项原创自评筛查工具。结果仅供自我了解，不构成诊断。" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b3142'/%3E%3Cpath d='M18 34c0-11 6-18 14-18s14 7 14 18c0 8-6 14-14 14s-14-6-14-14Z' fill='none' stroke='%2377d7c8' stroke-width='5'/%3E%3Cpath d='M24 34h16M32 26v16' stroke='%23fff' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <title>心理困扰90项自评</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="brand-mark" aria-hidden="true">90</div>
+        <div>
+          <p class="eyebrow">近7天状态回顾</p>
+          <h1>心理困扰90项自评</h1>
+        </div>
+      </header>
+
+      <section id="start-view" class="panel start-panel" aria-labelledby="start-title">
+        <div class="intro-orbit" aria-hidden="true">
+          <span>情绪</span><span>身体</span><span>关系</span><span>思维</span>
+          <strong>90</strong>
+        </div>
+        <p class="section-kicker">开始前请了解</p>
+        <h2 id="start-title">按真实感受作答，不必追求“正确答案”</h2>
+        <p class="lede">请回顾过去7天，每题选择它给你带来的困扰程度。完成约需12～15分钟。</p>
+        <div class="scale-preview" aria-label="评分方式">
+          <span><b>0</b>完全没有</span>
+          <span><b>1</b>轻微</span>
+          <span><b>2</b>中等</span>
+          <span><b>3</b>明显</span>
+          <span><b>4</b>非常严重</span>
+        </div>
+        <div class="notice-box">
+          <strong>这不是诊断</strong>
+          <p>本工具为原创自评筛查，不属于官方SCL‑90‑R。结果仅用于自我了解，不能替代专业心理或精神科评估。</p>
+        </div>
+        <label class="consent-row">
+          <input id="consent" type="checkbox" />
+          <span>我已了解以上说明，并愿意根据真实感受作答</span>
+        </label>
+        <button id="start-button" class="primary-button" type="button" disabled>开始测评</button>
+        <p class="privacy-note">所有计算均在当前浏览器内完成，不上传你的答案。</p>
+      </section>
+
+      <section id="question-view" class="panel question-panel" hidden aria-live="polite">
+        <div class="progress-row">
+          <button id="back-button" class="icon-button" type="button" aria-label="返回上一题">←</button>
+          <div class="progress-copy">
+            <span id="progress-label">第 1 / 90 题</span>
+            <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+          </div>
+          <button id="exit-button" class="text-button" type="button">退出</button>
+        </div>
+        <p class="section-kicker">过去7天内</p>
+        <h2 id="question-text">遇到不顺心的事情时，我很容易变得烦躁或生气。</h2>
+        <div id="options" class="options" role="radiogroup" aria-labelledby="question-text"></div>
+        <p class="keyboard-hint">电脑端可按数字键 0～4 快速作答</p>
+      </section>
+
+      <section id="result-view" class="result-view" hidden></section>
+    </main>
+    <div id="support-sheet" class="support-sheet" hidden></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
