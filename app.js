@@ -1,3 +1,103 @@
+const AUTH_HASH = 'ef2754ffd45a70e88fd7642c21a90c6f1c3f4fac5e74e088d11e7944439bfa1a';
+const AUTH_SESSION_KEY = 'psych90_access_granted';
+const AUTH_ATTEMPTS_KEY = 'psych90_access_attempts';
+const AUTH_LOCK_KEY = 'psych90_access_lock_until';
+const AUTH_MAX_ATTEMPTS = 5;
+const AUTH_LOCK_MS = 60_000;
+
+const authGate = document.querySelector('#auth-gate');
+const authForm = document.querySelector('#auth-form');
+const authCode = document.querySelector('#auth-code');
+const authSubmit = document.querySelector('#auth-submit');
+const authFeedback = document.querySelector('#auth-feedback');
+const appShell = document.querySelector('.app-shell');
+let lockTimer = null;
+let webMcpRegistered = false;
+
+async function sha256(value) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function unlockSite() {
+  sessionStorage.setItem(AUTH_SESSION_KEY, '1');
+  sessionStorage.removeItem(AUTH_ATTEMPTS_KEY);
+  sessionStorage.removeItem(AUTH_LOCK_KEY);
+  document.body.classList.remove('is-locked');
+  authGate.hidden = true;
+  appShell.removeAttribute('inert');
+  registerWebMcpTools();
+}
+
+function updateLockMessage() {
+  const remaining = Math.ceil((Number(sessionStorage.getItem(AUTH_LOCK_KEY) || 0) - Date.now()) / 1000);
+  if (remaining <= 0) {
+    window.clearInterval(lockTimer);
+    lockTimer = null;
+    sessionStorage.removeItem(AUTH_LOCK_KEY);
+    authSubmit.disabled = false;
+    authCode.disabled = false;
+    authFeedback.textContent = '现在可以重新尝试。';
+    authFeedback.className = 'auth-feedback success';
+    authCode.focus();
+    return;
+  }
+  authSubmit.disabled = true;
+  authCode.disabled = true;
+  authFeedback.textContent = `输入次数过多，请 ${remaining} 秒后再试。`;
+  authFeedback.className = 'auth-feedback';
+}
+
+function enforceExistingLock() {
+  const lockUntil = Number(sessionStorage.getItem(AUTH_LOCK_KEY) || 0);
+  if (lockUntil <= Date.now()) return false;
+  updateLockMessage();
+  lockTimer = window.setInterval(updateLockMessage, 1000);
+  return true;
+}
+
+authCode.addEventListener('input', () => {
+  authCode.value = authCode.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  authCode.setAttribute('aria-invalid', 'false');
+  authFeedback.textContent = '';
+  authFeedback.className = 'auth-feedback';
+});
+
+authForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (enforceExistingLock()) return;
+  const code = authCode.value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{6}$/.test(code)) {
+    authCode.setAttribute('aria-invalid', 'true');
+    authFeedback.textContent = '请输入六位英文与数字组合授权码。';
+    authCode.focus();
+    return;
+  }
+  authSubmit.disabled = true;
+  authSubmit.textContent = '正在验证…';
+  const matches = await sha256(code).then((hash) => hash === AUTH_HASH).catch(() => false);
+  authSubmit.textContent = '验证并进入';
+  if (matches) {
+    authFeedback.textContent = '验证成功';
+    authFeedback.className = 'auth-feedback success';
+    window.setTimeout(unlockSite, 180);
+    return;
+  }
+  const attempts = Number(sessionStorage.getItem(AUTH_ATTEMPTS_KEY) || 0) + 1;
+  authCode.setAttribute('aria-invalid', 'true');
+  authCode.select();
+  if (attempts >= AUTH_MAX_ATTEMPTS) {
+    sessionStorage.setItem(AUTH_ATTEMPTS_KEY, '0');
+    sessionStorage.setItem(AUTH_LOCK_KEY, String(Date.now() + AUTH_LOCK_MS));
+    enforceExistingLock();
+    return;
+  }
+  sessionStorage.setItem(AUTH_ATTEMPTS_KEY, String(attempts));
+  authSubmit.disabled = false;
+  authFeedback.textContent = `授权码不正确，还可尝试 ${AUTH_MAX_ATTEMPTS - attempts} 次。`;
+});
+
 const questions = [
   '遇到不顺心的事情时，我很容易变得烦躁或生气。',
   '我会出现头痛、头部发胀或类似的不适。',
@@ -295,8 +395,10 @@ document.addEventListener('keydown', (event) => {
 });
 
 function registerWebMcpTools() {
+  if (webMcpRegistered || sessionStorage.getItem(AUTH_SESSION_KEY) !== '1') return;
   const context = document.modelContext;
   if (!context?.registerTool) return;
+  webMcpRegistered = true;
   const lifecycle = new AbortController();
   const register = (tool) => Promise.resolve(context.registerTool(tool, { signal: lifecycle.signal })).catch(() => {});
   register({ name: 'start_self_assessment', title: '开始心理困扰自评', description: '清空现有答案并从第1题开始90项自评。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute() { consent.checked = true; startButton.disabled = false; startAssessment({ reset: true }); return { status: 'started', totalQuestions: questions.length }; } });
@@ -316,4 +418,8 @@ function registerWebMcpTools() {
   register({ name: 'complete_self_assessment', title: '完成并查看自评结果', description: '在90题全部作答后计算原始分并打开结果页。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute() { const missing = state.answers.filter((value) => value === null).length; if (missing > 0) throw new Error(`仍有${missing}题未作答`); showResults(); const result = calculateResults(); return { status: 'completed', gsi: Number(result.gsi.toFixed(2)), pst: result.pst, psdi: Number(result.psdi.toFixed(2)), riskNotice: result.riskScore > 0 }; } });
 }
 
-registerWebMcpTools();
+if (sessionStorage.getItem(AUTH_SESSION_KEY) === '1') unlockSite();
+else {
+  enforceExistingLock();
+  window.setTimeout(() => authCode.focus(), 0);
+}

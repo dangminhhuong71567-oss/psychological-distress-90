@@ -9,8 +9,24 @@
     <title>心理困扰90项自评</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
-    <main class="app-shell">
+  <body class="is-locked">
+    <section id="auth-gate" class="auth-gate" aria-labelledby="auth-title">
+      <div class="auth-card">
+        <div class="auth-mark" aria-hidden="true">90</div>
+        <p class="section-kicker">访问验证</p>
+        <h1 id="auth-title">输入授权码进入测评</h1>
+        <p class="auth-description">请输入购买后获得的六位英文与数字组合授权码。</p>
+        <form id="auth-form" novalidate>
+          <label for="auth-code">六位授权码</label>
+          <input id="auth-code" name="auth-code" type="text" maxlength="6" minlength="6" pattern="[A-Za-z0-9]{6}" inputmode="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="例如 A7K9Q2" aria-describedby="auth-feedback" />
+          <button id="auth-submit" class="primary-button" type="submit">验证并进入</button>
+          <p id="auth-feedback" class="auth-feedback" role="alert" aria-live="polite"></p>
+        </form>
+        <p class="auth-note">授权成功仅在当前浏览器会话内有效。</p>
+      </div>
+    </section>
+
+    <main class="app-shell" inert>
       <header class="app-header">
         <div class="brand-mark" aria-hidden="true">90</div>
         <div>
