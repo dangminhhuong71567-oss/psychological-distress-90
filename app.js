@@ -28,6 +28,9 @@ function unlockSite() {
   authGate.hidden = true;
   appShell.removeAttribute('inert');
   registerWebMcpTools();
+  consent.checked = true;
+  startButton.disabled = false;
+  startAssessment({ reset: true });
 }
 
 function updateLockMessage() {
@@ -211,7 +214,12 @@ const additionalItems = [
 ];
 
 const optionLabels = ['完全没有', '轻微', '中等', '明显', '非常严重'];
-const state = { current: 0, answers: Array(questions.length).fill(null) };
+const state = {
+  current: 0,
+  answers: Array(questions.length).fill(null),
+  isAdvancing: false,
+  advanceTimer: null
+};
 const startView = document.querySelector('#start-view');
 const questionView = document.querySelector('#question-view');
 const resultView = document.querySelector('#result-view');
@@ -232,7 +240,14 @@ function setView(view) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function cancelPendingAdvance() {
+  if (state.advanceTimer !== null) window.clearTimeout(state.advanceTimer);
+  state.advanceTimer = null;
+  state.isAdvancing = false;
+}
+
 function startAssessment({ reset = false } = {}) {
+  cancelPendingAdvance();
   if (reset) {
     state.current = 0;
     state.answers.fill(null);
@@ -256,6 +271,7 @@ function renderQuestion() {
     const button = document.createElement('button');
     const selected = state.answers[state.current] === score;
     button.type = 'button';
+    button.disabled = state.isAdvancing;
     button.className = `option-button${selected ? ' selected' : ''}`;
     button.setAttribute('role', 'radio');
     button.setAttribute('aria-checked', String(selected));
@@ -266,17 +282,19 @@ function renderQuestion() {
 }
 
 function recordAnswer(score) {
-  if (!Number.isInteger(score) || score < 0 || score > 4) return;
+  if (state.isAdvancing || !Number.isInteger(score) || score < 0 || score > 4) return;
+  state.isAdvancing = true;
   state.answers[state.current] = score;
   renderQuestion();
   if (state.current === 32 && score > 0) {
     showImmediateSupport(score);
     return;
   }
-  window.setTimeout(advance, 180);
+  state.advanceTimer = window.setTimeout(advance, 220);
 }
 
 function advance() {
+  cancelPendingAdvance();
   if (state.current < questions.length - 1) {
     state.current += 1;
     renderQuestion();
@@ -381,8 +399,12 @@ function showResults() {
 
 consent.addEventListener('change', () => { startButton.disabled = !consent.checked; });
 startButton.addEventListener('click', () => startAssessment());
-backButton.addEventListener('click', () => { if (state.current > 0) { state.current -= 1; renderQuestion(); } });
+backButton.addEventListener('click', () => {
+  cancelPendingAdvance();
+  if (state.current > 0) { state.current -= 1; renderQuestion(); }
+});
 exitButton.addEventListener('click', () => {
+  cancelPendingAdvance();
   startButton.textContent = state.answers.some((answer) => answer !== null) ? '继续测评' : '开始测评';
   startButton.disabled = false;
   consent.checked = true;
