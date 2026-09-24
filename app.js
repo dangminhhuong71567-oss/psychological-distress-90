@@ -2,19 +2,68 @@ const AUTH_HASH = 'ef2754ffd45a70e88fd7642c21a90c6f1c3f4fac5e74e088d11e7944439bf
 const AUTH_SESSION_KEY = 'psych90_access_granted';
 const AUTH_ATTEMPTS_KEY = 'psych90_access_attempts';
 const AUTH_LOCK_KEY = 'psych90_access_lock_until';
+const LICENSE_TOKEN_KEY = 'psych90_license_token_v1';
+const DEVICE_ID_KEY = 'psych90_device_id_v1';
 const AUTH_MAX_ATTEMPTS = 5;
 const AUTH_LOCK_MS = 60_000;
 const RESULT_HISTORY_KEY = 'psych90_result_history_v1';
 const RESULT_HISTORY_LIMIT = 5;
+const runtimeConfig = window.PSYCH90_CONFIG || {};
+const AUTH_API_BASE = String(runtimeConfig.authApiBase || '').trim().replace(/\/$/, '');
+const AUTH_PRODUCT_ID = String(runtimeConfig.productId || 'scl90').trim();
 
 const authGate = document.querySelector('#auth-gate');
 const authForm = document.querySelector('#auth-form');
 const authCode = document.querySelector('#auth-code');
 const authSubmit = document.querySelector('#auth-submit');
 const authFeedback = document.querySelector('#auth-feedback');
+const authNote = document.querySelector('#auth-note');
 const appShell = document.querySelector('.app-shell');
 let lockTimer = null;
 let webMcpRegistered = false;
+
+function storageGet(storage, key) {
+  try { return storage.getItem(key); } catch { return null; }
+}
+
+function storageSet(storage, key, value) {
+  try { storage.setItem(key, value); return true; } catch { return false; }
+}
+
+function storageRemove(storage, key) {
+  try { storage.removeItem(key); } catch {}
+}
+
+function getDeviceId() {
+  const existing = storageGet(localStorage, DEVICE_ID_KEY);
+  if (existing) return existing;
+  const id = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Array.from(crypto.getRandomValues(new Uint8Array(24)), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  storageSet(localStorage, DEVICE_ID_KEY, id);
+  return id;
+}
+
+async function licenseRequest(pathname, payload) {
+  let response;
+  try {
+    response = await fetch(`${AUTH_API_BASE}${pathname}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch {
+    throw Object.assign(new Error('暂时无法连接授权服务，请检查网络后重试。'), { code: 'NETWORK_ERROR' });
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.success) {
+    throw Object.assign(new Error(body.message || '授权验证失败，请稍后重试。'), {
+      code: body.code || 'AUTH_ERROR',
+      retryAfter: Number(body.retryAfter || response.headers.get('Retry-After') || 0)
+    });
+  }
+  return body;
+}
 
 async function sha256(value) {
   const bytes = new TextEncoder().encode(value);
@@ -23,9 +72,9 @@ async function sha256(value) {
 }
 
 function unlockSite() {
-  sessionStorage.setItem(AUTH_SESSION_KEY, '1');
-  sessionStorage.removeItem(AUTH_ATTEMPTS_KEY);
-  sessionStorage.removeItem(AUTH_LOCK_KEY);
+  storageSet(sessionStorage, AUTH_SESSION_KEY, '1');
+  storageRemove(sessionStorage, AUTH_ATTEMPTS_KEY);
+  storageRemove(sessionStorage, AUTH_LOCK_KEY);
   document.body.classList.remove('is-locked');
   authGate.hidden = true;
   appShell.removeAttribute('inert');
@@ -81,6 +130,28 @@ authForm.addEventListener('submit', async (event) => {
   }
   authSubmit.disabled = true;
   authSubmit.textContent = '正在验证…';
+  if (AUTH_API_BASE) {
+    try {
+      const result = await licenseRequest('/api/licenses/activate', {
+        code,
+        productId: AUTH_PRODUCT_ID,
+        deviceId: getDeviceId()
+      });
+      storageSet(localStorage, LICENSE_TOKEN_KEY, result.token);
+      authFeedback.textContent = '验证成功，正在进入…';
+      authFeedback.className = 'auth-feedback success';
+      window.setTimeout(unlockSite, 180);
+    } catch (error) {
+      authSubmit.disabled = false;
+      authCode.setAttribute('aria-invalid', 'true');
+      authCode.select();
+      authFeedback.textContent = error.message;
+      authFeedback.className = 'auth-feedback';
+    } finally {
+      authSubmit.textContent = '验证并进入';
+    }
+    return;
+  }
   const matches = await sha256(code).then((hash) => hash === AUTH_HASH).catch(() => false);
   authSubmit.textContent = '验证并进入';
   if (matches) {
@@ -882,8 +953,35 @@ function registerWebMcpTools() {
   register({ name: 'complete_self_assessment', title: '完成并查看自评结果', description: '在90题全部作答后计算原始分并打开结果页。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute() { const missing = state.answers.filter((value) => value === null).length; if (missing > 0) throw new Error(`仍有${missing}题未作答`); showResults(); const result = calculateResults(); return { status: 'completed', gsi: Number(result.gsi.toFixed(2)), pst: result.pst, psdi: Number(result.psdi.toFixed(2)), riskNotice: result.riskScore > 0 }; } });
 }
 
-if (sessionStorage.getItem(AUTH_SESSION_KEY) === '1') unlockSite();
-else {
-  enforceExistingLock();
-  window.setTimeout(() => authCode.focus(), 0);
+async function initializeAuthorization() {
+  if (!AUTH_API_BASE) {
+    if (storageGet(sessionStorage, AUTH_SESSION_KEY) === '1') unlockSite();
+    else {
+      enforceExistingLock();
+      window.setTimeout(() => authCode.focus(), 0);
+    }
+    return;
+  }
+
+  authNote.textContent = '每个授权码首次使用后绑定当前浏览器；更换设备请联系售后换绑。';
+  const token = storageGet(localStorage, LICENSE_TOKEN_KEY);
+  if (!token) {
+    window.setTimeout(() => authCode.focus(), 0);
+    return;
+  }
+
+  authSubmit.disabled = true;
+  authFeedback.textContent = '正在恢复授权…';
+  try {
+    await licenseRequest('/api/licenses/session', { token, deviceId: getDeviceId() });
+    unlockSite();
+  } catch {
+    storageRemove(localStorage, LICENSE_TOKEN_KEY);
+    storageRemove(sessionStorage, AUTH_SESSION_KEY);
+    authSubmit.disabled = false;
+    authFeedback.textContent = '授权已失效，请重新输入授权码。';
+    window.setTimeout(() => authCode.focus(), 0);
+  }
 }
+
+initializeAuthorization();
