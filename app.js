@@ -4,6 +4,8 @@ const AUTH_ATTEMPTS_KEY = 'psych90_access_attempts';
 const AUTH_LOCK_KEY = 'psych90_access_lock_until';
 const AUTH_MAX_ATTEMPTS = 5;
 const AUTH_LOCK_MS = 60_000;
+const RESULT_HISTORY_KEY = 'psych90_result_history_v1';
+const RESULT_HISTORY_LIMIT = 5;
 
 const authGate = document.querySelector('#auth-gate');
 const authForm = document.querySelector('#auth-form');
@@ -218,7 +220,8 @@ const state = {
   current: 0,
   answers: Array(questions.length).fill(null),
   isAdvancing: false,
-  advanceTimer: null
+  advanceTimer: null,
+  completedAt: null
 };
 const startView = document.querySelector('#start-view');
 const questionView = document.querySelector('#question-view');
@@ -251,6 +254,7 @@ function startAssessment({ reset = false } = {}) {
   if (reset) {
     state.current = 0;
     state.answers.fill(null);
+    state.completedAt = null;
   } else {
     const firstUnanswered = state.answers.findIndex((value) => value === null);
     state.current = firstUnanswered >= 0 ? firstUnanswered : 0;
@@ -286,7 +290,7 @@ function recordAnswer(score) {
   state.isAdvancing = true;
   state.answers[state.current] = score;
   renderQuestion();
-  if (state.current === 32 && score > 0) {
+  if ((state.current === 32 || state.current === 59) && score > 0) {
     showImmediateSupport(score);
     return;
   }
@@ -336,7 +340,161 @@ function calculateResults() {
     const sum = dimension.items.reduce((subtotal, itemNumber) => subtotal + state.answers[itemNumber - 1], 0);
     return { ...dimension, raw: sum / dimension.items.length };
   });
-  return { totalScore, pst, gsi, psdi, dimensionResults, riskScore: state.answers[32] };
+  return { totalScore, pst, gsi, psdi, dimensionResults, riskScore: Math.max(state.answers[32], state.answers[59]) };
+}
+
+const dimensionGuidance = {
+  SOM: { title: '先区分身体与压力信号', text: '记录不适出现的时间、持续多久和当时情境；若疼痛、胸闷、头晕等持续或加重，应优先接受医疗评估。' },
+  'O-C': { title: '给反复检查设定停止点', text: '把任务拆成更小步骤，并预先约定检查次数；若反复想法或行为明显占用时间，可考虑寻求专业支持。' },
+  'I-S': { title: '观察评价触发点', text: '记录哪些互动最容易引发自我否定，尝试把“事实”和“对方可能怎么看我”分开书写。' },
+  DEP: { title: '先恢复最小日常节律', text: '从规律起床、进食、短时活动和联系可信赖的人开始；若低落持续或影响生活，请尽快寻求专业评估。' },
+  ANX: { title: '降低持续警觉', text: '减少过量咖啡因和睡前刺激，练习缓慢呼气，并把担忧写成可以处理的下一步。' },
+  HOS: { title: '为冲突设置暂停动作', text: '情绪升高时先离开冲突现场、放下可能伤人的物品，等身体反应下降后再继续沟通。' },
+  PHOB: { title: '从可承受的小步骤开始', text: '不要强迫自己一次克服全部恐惧；在安全前提下逐级接近，并记录实际发生的结果。' },
+  PAR: { title: '核对证据与推断', text: '把已经发生的事实、自己的解释和仍需核实的信息分开，必要时向可信赖的人获取第二视角。' },
+  PSY: { title: '优先确认现实感与安全', text: '如果异常知觉、思维受影响感持续、增强或影响安全，请尽快联系精神科或专业心理人员进行评估。' }
+};
+
+function formatReportDate(value) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).format(new Date(value)).replaceAll('/', '.');
+}
+
+function getHistory() {
+  try {
+    const value = JSON.parse(localStorage.getItem(RESULT_HISTORY_KEY) || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function serializeResult(result) {
+  return {
+    createdAt: state.completedAt,
+    gsi: Number(result.gsi.toFixed(3)),
+    pst: result.pst,
+    psdi: Number(result.psdi.toFixed(3)),
+    dimensions: Object.fromEntries(result.dimensionResults.map((item) => [item.code, Number(item.raw.toFixed(3))]))
+  };
+}
+
+function saveResultHistory(result) {
+  const history = getHistory();
+  const record = serializeResult(result);
+  const withoutDuplicate = history.filter((item) => item.createdAt !== record.createdAt);
+  localStorage.setItem(RESULT_HISTORY_KEY, JSON.stringify([record, ...withoutDuplicate].slice(0, RESULT_HISTORY_LIMIT)));
+}
+
+function deltaLabel(value, digits = 2) {
+  if (Math.abs(value) < 0.005) return '基本持平';
+  return `较上次 ${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
+}
+
+function renderTrend(previous, result) {
+  if (!previous?.dimensions) {
+    return `
+      <section class="result-card trend-card">
+        <p class="section-kicker">前后测记录</p>
+        <h2>从下一次开始看见变化</h2>
+        <p>如果你愿意，可以主动把本次摘要保存在这个浏览器中。再次完成测评后，这里会比较两次结果。数据不会上传。</p>
+      </section>`;
+  }
+  const changes = result.dimensionResults.map((item) => ({
+    ...item,
+    delta: item.raw - Number(previous.dimensions[item.code] || 0)
+  })).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  const largest = changes[0];
+  return `
+    <section class="result-card trend-card">
+      <div class="section-heading">
+        <div><p class="section-kicker">前后测记录</p><h2>与上次本机记录对比</h2></div>
+        <span class="range-key">${formatReportDate(previous.createdAt)}</span>
+      </div>
+      <div class="trend-grid">
+        <div><span>总体均分 GSI</span><strong>${deltaLabel(result.gsi - previous.gsi)}</strong></div>
+        <div><span>有困扰项目 PST</span><strong>${deltaLabel(result.pst - previous.pst, 0)}</strong></div>
+        <div><span>变化最明显维度</span><strong>${largest.name} ${largest.delta > 0 ? '+' : ''}${largest.delta.toFixed(2)}</strong></div>
+      </div>
+      <p class="trend-note">这里只比较两次作答差异，不代表病情好转或恶化。作答情境、睡眠和近期事件都可能影响结果。</p>
+    </section>`;
+}
+
+function radarPoint(index, value, count, cx, cy, radius) {
+  const angle = -Math.PI / 2 + (Math.PI * 2 * index) / count;
+  return {
+    x: cx + Math.cos(angle) * radius * value,
+    y: cy + Math.sin(angle) * radius * value
+  };
+}
+
+function makeRadarSvg(results) {
+  const width = 360;
+  const height = 340;
+  const cx = 180;
+  const cy = 158;
+  const radius = 105;
+  const count = results.length;
+  const shortNames = ['躯体', '强迫', '人际', '抑郁', '焦虑', '敌对', '恐怖', '偏执', '精神'];
+  const polygon = (level) => Array.from({ length: count }, (_, index) => {
+    const point = radarPoint(index, level, count, cx, cy, radius);
+    return `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
+  }).join(' ');
+  const axes = Array.from({ length: count }, (_, index) => {
+    const point = radarPoint(index, 1, count, cx, cy, radius);
+    return `<line x1="${cx}" y1="${cy}" x2="${point.x.toFixed(1)}" y2="${point.y.toFixed(1)}" />`;
+  }).join('');
+  const values = results.map((item, index) => {
+    const point = radarPoint(index, item.raw / 4, count, cx, cy, radius);
+    return `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
+  }).join(' ');
+  const dots = results.map((item, index) => {
+    const point = radarPoint(index, item.raw / 4, count, cx, cy, radius);
+    return `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.2"><title>${item.name} ${item.raw.toFixed(2)} / 4</title></circle>`;
+  }).join('');
+  const labels = results.map((item, index) => {
+    const point = radarPoint(index, 1.28, count, cx, cy, radius);
+    const anchor = point.x < cx - 8 ? 'end' : point.x > cx + 8 ? 'start' : 'middle';
+    return `<text x="${point.x.toFixed(1)}" y="${(point.y + 4).toFixed(1)}" text-anchor="${anchor}">${shortNames[index]}</text>`;
+  }).join('');
+  return `
+    <svg class="radar-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="九维原始均分雷达图，越靠外表示本次报告的困扰强度越高">
+      <g class="radar-grid">${[.25, .5, .75, 1].map((level) => `<polygon points="${polygon(level)}" />`).join('')}${axes}</g>
+      <polygon class="radar-area" points="${values}" />
+      <g class="radar-dots">${dots}</g>
+      <g class="radar-labels">${labels}</g>
+      <text class="radar-scale" x="${cx}" y="${height - 8}" text-anchor="middle">中心 0 · 外圈 4</text>
+    </svg>`;
+}
+
+function renderTopDimensions(ranked) {
+  const top = ranked.slice(0, 3);
+  if (!top.some((item) => item.raw > 0)) {
+    return '<p class="empty-insight">本次九个维度均未报告相关困扰。若实际感受与结果不一致，可以在状态发生变化后重新作答。</p>';
+  }
+  return `<div class="top-dimension-list">${top.map((item, index) => `
+    <article>
+      <span class="top-rank">0${index + 1}</span>
+      <div><h3>${item.name}</h3><p>${item.description}</p></div>
+      <strong>${item.raw.toFixed(2)}<small>/4</small></strong>
+    </article>`).join('')}</div>`;
+}
+
+function renderRecommendations(ranked) {
+  const relevant = ranked.filter((item) => item.raw > 0).slice(0, 3);
+  if (relevant.length === 0) {
+    return `<ol class="recommendation-list">
+      <li><span>01</span><div><strong>维持基本生活节律</strong><p>继续保持相对规律的睡眠、进食和日常活动。</p></div></li>
+      <li><span>02</span><div><strong>定期做一次状态回顾</strong><p>每隔一段时间观察情绪、身体和人际状态是否出现持续变化。</p></div></li>
+      <li><span>03</span><div><strong>需要时及时求助</strong><p>如果实际困扰与本次结果不一致，或之后开始影响生活，可以重新评估并考虑专业支持。</p></div></li>
+    </ol>`;
+  }
+  return `<ol class="recommendation-list">${relevant.map((item, index) => {
+    const advice = dimensionGuidance[item.code];
+    return `<li><span>0${index + 1}</span><div><strong>${advice.title}</strong><p>${advice.text}</p><small>对应：${item.name} ${item.raw.toFixed(2)} / 4</small></div></li>`;
+  }).join('')}</ol>`;
 }
 
 function renderDimension(result, relativeTop) {
@@ -353,6 +511,247 @@ function renderDimension(result, relativeTop) {
     </article>`;
 }
 
+function roundedCanvasRect(ctx, x, y, width, height, radius, fill) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines = Infinity) {
+  const lines = [];
+  let line = '';
+  for (const character of text) {
+    if (ctx.measureText(line + character).width > maxWidth && line) {
+      lines.push(line);
+      line = character;
+    } else {
+      line += character;
+    }
+  }
+  if (line) lines.push(line);
+  const visible = lines.slice(0, maxLines);
+  if (lines.length > maxLines) visible[maxLines - 1] = `${visible[maxLines - 1].slice(0, -1)}…`;
+  visible.forEach((item, index) => ctx.fillText(item, x, y + index * lineHeight));
+  return y + visible.length * lineHeight;
+}
+
+function drawCanvasRadar(ctx, results, cx, cy, radius) {
+  const count = results.length;
+  ctx.save();
+  ctx.strokeStyle = '#d9e7e4';
+  ctx.lineWidth = 2;
+  [.25, .5, .75, 1].forEach((level) => {
+    ctx.beginPath();
+    for (let index = 0; index < count; index += 1) {
+      const point = radarPoint(index, level, count, cx, cy, radius);
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  });
+  for (let index = 0; index < count; index += 1) {
+    const point = radarPoint(index, 1, count, cx, cy, radius);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(point.x, point.y);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  results.forEach((item, index) => {
+    const point = radarPoint(index, item.raw / 4, count, cx, cy, radius);
+    if (index === 0) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
+  });
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(11, 86, 97, .18)';
+  ctx.strokeStyle = '#0b5661';
+  ctx.lineWidth = 5;
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#0b5661';
+  results.forEach((item, index) => {
+    const point = radarPoint(index, item.raw / 4, count, cx, cy, radius);
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  const names = ['躯体', '强迫', '人际', '抑郁', '焦虑', '敌对', '恐怖', '偏执', '精神'];
+  ctx.font = '600 30px "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.fillStyle = '#334f59';
+  names.forEach((name, index) => {
+    const point = radarPoint(index, 1.22, count, cx, cy, radius);
+    ctx.textAlign = point.x < cx - 10 ? 'right' : point.x > cx + 10 ? 'left' : 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name, point.x, point.y);
+  });
+  ctx.restore();
+}
+
+function createReportCanvas(result, ranked) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1080;
+  canvas.height = 2200;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#f7fbfa';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#0b3142';
+  ctx.fillRect(0, 0, canvas.width, 255);
+  ctx.fillStyle = '#77d7c8';
+  ctx.font = '700 30px "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.fillText('近7天状态回顾', 72, 72);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '800 58px "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.fillText('心理困扰90项自评报告', 72, 142);
+  ctx.fillStyle = 'rgba(255,255,255,.72)';
+  ctx.font = '400 28px "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.fillText(`完成时间 ${formatReportDate(state.completedAt)}`, 72, 202);
+
+  roundedCanvasRect(ctx, 60, 310, 960, 290, 34, '#ffffff');
+  ctx.fillStyle = '#0b3142';
+  ctx.font = '800 38px "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.fillText('本次自评摘要', 96, 375);
+  const metrics = [
+    ['GSI', result.gsi.toFixed(2), '总体均分 / 4'],
+    ['PST', String(result.pst), '有困扰项目 / 90'],
+    ['PSDI', result.psdi.toFixed(2), '阳性项目平均分']
+  ];
+  metrics.forEach(([label, value, note], index) => {
+    const x = 96 + index * 302;
+    ctx.fillStyle = '#0b5661';
+    ctx.font = '800 25px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText(label, x, 440);
+    ctx.fillStyle = '#0b3142';
+    ctx.font = '800 54px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText(value, x, 505);
+    ctx.fillStyle = '#61717a';
+    ctx.font = '400 22px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText(note, x, 548);
+  });
+
+  roundedCanvasRect(ctx, 60, 650, 960, 820, 34, '#ffffff');
+  ctx.fillStyle = '#0b3142';
+  ctx.font = '800 38px "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.fillText('九维原始均分', 96, 720);
+  ctx.fillStyle = '#61717a';
+  ctx.font = '400 23px "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.fillText('越靠外表示本次报告的主观困扰强度越高', 96, 765);
+  drawCanvasRadar(ctx, result.dimensionResults, 540, 1050, 245);
+  const top = ranked.slice(0, 3);
+  if (top.some((item) => item.raw > 0)) {
+    top.forEach((item, index) => {
+      const x = 112 + index * 300;
+      ctx.fillStyle = '#0b5661';
+      ctx.font = '700 24px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.fillText(`0${index + 1}  ${item.name}`, x, 1390);
+      ctx.fillStyle = '#0b3142';
+      ctx.font = '800 34px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.fillText(`${item.raw.toFixed(2)} / 4`, x, 1435);
+    });
+  } else {
+    ctx.fillStyle = '#61717a';
+    ctx.font = '500 28px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText('本次九个维度均未报告相关困扰', 112, 1415);
+  }
+
+  roundedCanvasRect(ctx, 60, 1520, 960, 490, 34, '#ffffff');
+  ctx.fillStyle = '#0b3142';
+  ctx.font = '800 38px "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.fillText('从现在开始的三个小步骤', 96, 1590);
+  const guidance = top.filter((item) => item.raw > 0).map((item) => dimensionGuidance[item.code]);
+  const canvasSteps = guidance.length ? guidance : [
+    { title: '维持基本生活节律', text: '继续保持相对规律的睡眠、进食和日常活动。' },
+    { title: '定期做一次状态回顾', text: '观察情绪、身体和人际状态是否出现持续变化。' },
+    { title: '需要时及时求助', text: '若之后的困扰开始影响生活，可以重新评估并考虑专业支持。' }
+  ];
+  canvasSteps.forEach((advice, index) => {
+    const y = 1665 + index * 115;
+    ctx.fillStyle = '#def5ef';
+    ctx.beginPath();
+    ctx.arc(116, y - 8, 28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0b5661';
+    ctx.font = '800 22px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(index + 1).padStart(2, '0'), 116, y);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#0b3142';
+    ctx.font = '700 27px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText(advice.title, 168, y - 15);
+    ctx.fillStyle = '#61717a';
+    ctx.font = '400 21px "PingFang SC", "Microsoft YaHei", sans-serif';
+    wrapCanvasText(ctx, advice.text, 168, y + 22, 760, 30, 2);
+  });
+
+  ctx.fillStyle = '#0b3142';
+  ctx.font = '700 25px "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.fillText('请正确理解这份结果', 72, 2080);
+  ctx.fillStyle = '#61717a';
+  ctx.font = '400 20px "PingFang SC", "Microsoft YaHei", sans-serif';
+  wrapCanvasText(ctx, '本报告展示的是本次自评原始分和个人内部相对排序，不代表临床异常，也不能替代专业心理、精神科或医疗评估。', 72, 2120, 920, 31, 3);
+  return canvas;
+}
+
+function showReportImagePreview(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  supportSheet.hidden = false;
+  supportSheet.innerHTML = `
+    <div class="sheet-backdrop" data-close-report></div>
+    <section class="sheet-card report-preview-sheet" role="dialog" aria-modal="true" aria-labelledby="report-preview-title">
+      <p class="section-kicker">结果长图已生成</p>
+      <h2 id="report-preview-title">长按图片保存到手机</h2>
+      <p>也可以点击下方按钮下载PNG原图。图片只在当前浏览器生成，不会上传。</p>
+      <img class="report-preview-image" src="${url}" alt="本次心理困扰90项自评结果长图" />
+      <a class="primary-button report-download-link" href="${url}" download="${filename}">下载PNG原图</a>
+      <button class="secondary-button" id="close-report-preview" type="button">关闭预览</button>
+    </section>`;
+  const close = () => {
+    supportSheet.hidden = true;
+    supportSheet.replaceChildren();
+    URL.revokeObjectURL(url);
+  };
+  document.querySelector('#close-report-preview')?.addEventListener('click', close);
+  document.querySelector('[data-close-report]')?.addEventListener('click', close);
+  document.querySelector('#close-report-preview')?.focus();
+}
+
+async function saveReportImage(result, ranked, button) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = '正在生成…';
+  try {
+    const canvas = createReportCanvas(result, ranked);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png', 1));
+    if (!blob) throw new Error('无法生成图片');
+    const filename = `心理困扰90项自评-${new Date(state.completedAt).toISOString().slice(0, 10)}.png`;
+    showReportImagePreview(blob, filename);
+    button.textContent = '结果长图已生成';
+  } catch (error) {
+    button.textContent = '生成失败，请重试';
+  } finally {
+    button.disabled = false;
+    window.setTimeout(() => { button.textContent = original; }, 2200);
+  }
+}
+
+function renderScoreTable(ranked) {
+  return `
+    <div class="score-table-wrap">
+      <table class="score-table">
+        <thead><tr><th>排序</th><th>维度</th><th>均分</th><th>本次位置</th></tr></thead>
+        <tbody>${ranked.map((item, index) => `
+          <tr><td>${String(index + 1).padStart(2, '0')}</td><td>${item.name}</td><td><strong>${item.raw.toFixed(2)}</strong> / 4</td><td>${index < 3 && item.raw > 0 ? '<span>相对靠前</span>' : '—'}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
 function showResults() {
   if (state.answers.some((value) => value === null)) {
     state.current = state.answers.findIndex((value) => value === null);
@@ -360,25 +759,46 @@ function showResults() {
     setView('question');
     return;
   }
+  state.completedAt ||= new Date().toISOString();
   const result = calculateResults();
   const ranked = [...result.dimensionResults].sort((a, b) => b.raw - a.raw);
   const topCodes = new Set(ranked.slice(0, 3).filter((item) => item.raw > 0).map((item) => item.code));
   const topNames = ranked.slice(0, 3).filter((item) => item.raw > 0).map((item) => item.name);
+  const previous = getHistory().find((item) => item.createdAt !== state.completedAt);
   const riskCard = result.riskScore > 0 ? `
     <section class="result-card risk-card"><p class="section-kicker">优先关注</p><h2>${result.riskScore >= 2 ? '建议尽快寻求支持' : '请额外关注自伤或轻生相关想法'}</h2><p>${result.riskScore >= 2 ? '这项结果需要优先于普通分数处理。如果相关想法仍存在、越来越强烈或已经出现具体计划，请立即联系可信赖的人陪伴，并尽快联系当地紧急医疗服务、危机干预资源或精神科专业人员。' : '如果这类想法持续、增强或开始影响安全，请尽快告诉可信赖的人，并考虑联系专业心理或精神科支持。'}</p></section>` : '';
 
   resultView.innerHTML = `
     ${riskCard}
     <section class="result-card result-hero">
-      <p class="section-kicker">你的本次自评摘要</p><h2>过去7天的主观困扰画像</h2>
+      <div class="report-meta"><p class="section-kicker">你的本次自评摘要</p><span>${formatReportDate(state.completedAt)}</span></div>
+      <h2>过去7天的主观困扰画像</h2>
       <p class="result-intro">${topNames.length ? `在九个维度中，${topNames.join('、')}的原始均分相对靠前。这里展示的是个人本次结果的相对排序，不代表临床异常。` : '你在本次90项自评中没有报告相关困扰。若实际感受与结果不一致，可在状态变化后重新评估。'}</p>
       <div class="metric-grid"><div><span>GSI</span><strong>${result.gsi.toFixed(2)}</strong><small>总体均分 / 4</small></div><div><span>PST</span><strong>${result.pst}</strong><small>有困扰项目 / 90</small></div><div><span>PSDI</span><strong>${result.psdi.toFixed(2)}</strong><small>阳性项目平均分</small></div></div>
       <div class="no-norm-note"><strong>为什么没有T分？</strong><p>这套原创量表尚未建立正式常模，因此只展示可核算的原始分。网站不会用伪造T分判断“正常、异常或确诊”。</p></div>
     </section>
+    <section class="result-card radar-card">
+      <div class="section-heading"><div><p class="section-kicker">结果总览</p><h2>九维困扰画像</h2></div><span class="range-key">0 — 4</span></div>
+      <p>雷达图只表示本次九个维度之间的相对分布。越靠外，表示你在该维度报告的主观困扰越多。</p>
+      <div class="radar-layout">
+        <div class="radar-frame">${makeRadarSvg(result.dimensionResults)}</div>
+        <div class="radar-summary"><span>本次相对靠前</span>${renderTopDimensions(ranked)}</div>
+      </div>
+    </section>
+    <section class="result-card score-table-card">
+      <div class="section-heading"><div><p class="section-kicker">九维明细</p><h2>原始均分与内部排序</h2></div><span class="range-key">非临床排名</span></div>
+      ${renderScoreTable(ranked)}
+    </section>
     <section class="result-card">
-      <div class="section-heading"><div><p class="section-kicker">九维结果</p><h2>本次原始均分</h2></div><span class="range-key">0 — 4</span></div>
+      <div class="section-heading"><div><p class="section-kicker">维度解读</p><h2>每一项分数代表什么</h2></div><span class="range-key">详细报告</span></div>
       <div class="dimension-list">${result.dimensionResults.map((item) => renderDimension(item, topCodes.has(item.code))).join('')}</div>
     </section>
+    <section class="result-card action-card">
+      <p class="section-kicker">个性化行动建议</p><h2>从三个可执行的小步骤开始</h2>
+      <p>建议根据本次相对靠前的维度生成，不是治疗方案。选择其中一个最容易做到的步骤即可。</p>
+      ${renderRecommendations(ranked)}
+    </section>
+    ${renderTrend(previous, result)}
     <section class="result-card">
       <p class="section-kicker">附加观察</p><h2>睡眠、饮食与其他体验</h2>
       <div class="additional-list">${additionalItems.map((item) => `<div><span>${item.label}</span><strong>${state.answers[item.number - 1]} · ${optionLabels[state.answers[item.number - 1]]}</strong></div>`).join('')}</div>
@@ -386,8 +806,30 @@ function showResults() {
     <section class="result-card guidance-card">
       <p class="section-kicker">如何看待结果</p><h2>它是一份线索，不是一张诊断书</h2>
       <p>结果只反映你过去7天的主观心理和身体困扰体验。单个维度分数较高不代表患有对应疾病。若困扰持续存在、明显影响生活，或出现自伤、自杀等安全风险，请及时寻求专业心理、精神科或医疗支持。</p>
+      <div class="report-actions">
+        <button id="save-image-button" class="primary-button" type="button">查看并保存结果长图</button>
+        <button id="save-history-button" class="secondary-button" type="button">保存到本机作前后测</button>
+        <button id="print-report-button" class="secondary-button" type="button">打印或存为PDF</button>
+      </div>
+      <p id="history-feedback" class="history-feedback" aria-live="polite">本机记录由你主动保存，最多保留5次，不会上传。</p>
+      ${getHistory().length ? '<button id="clear-history-button" class="clear-history-button" type="button">清除本机前后测记录</button>' : ''}
       <button id="restart-button" class="secondary-button" type="button">重新作答</button>
     </section>`;
+  document.querySelector('#save-image-button')?.addEventListener('click', (event) => saveReportImage(result, ranked, event.currentTarget));
+  document.querySelector('#print-report-button')?.addEventListener('click', () => window.print());
+  document.querySelector('#save-history-button')?.addEventListener('click', (event) => {
+    saveResultHistory(result);
+    event.currentTarget.disabled = true;
+    event.currentTarget.textContent = '本次记录已保存';
+    const feedback = document.querySelector('#history-feedback');
+    if (feedback) feedback.textContent = '已保存到这个浏览器。下一次完成测评后会自动显示对比。';
+  });
+  document.querySelector('#clear-history-button')?.addEventListener('click', () => {
+    localStorage.removeItem(RESULT_HISTORY_KEY);
+    const feedback = document.querySelector('#history-feedback');
+    if (feedback) feedback.textContent = '本机前后测记录已清除。';
+    document.querySelector('#clear-history-button')?.remove();
+  });
   document.querySelector('#restart-button')?.addEventListener('click', () => {
     consent.checked = true;
     startButton.disabled = false;
