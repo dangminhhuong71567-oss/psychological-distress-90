@@ -320,7 +320,6 @@ const state = {
 const startView = document.querySelector('#start-view');
 const questionView = document.querySelector('#question-view');
 const resultView = document.querySelector('#result-view');
-const consent = document.querySelector('#consent');
 const startButton = document.querySelector('#start-button');
 const questionText = document.querySelector('#question-text');
 const progressLabel = document.querySelector('#progress-label');
@@ -468,6 +467,7 @@ function getHistory() {
 function serializeResult(result) {
   return {
     createdAt: state.completedAt,
+    totalScore: result.totalScore,
     gsi: Number(result.gsi.toFixed(3)),
     pst: result.pst,
     psdi: Number(result.psdi.toFixed(3)),
@@ -703,7 +703,7 @@ function createReportCanvas(result, ranked) {
   ctx.fillText('近7天状态回顾', 72, 72);
   ctx.fillStyle = '#ffffff';
   ctx.font = '800 58px "PingFang SC", "Microsoft YaHei", sans-serif';
-  ctx.fillText('心理困扰90项自评报告', 72, 142);
+  ctx.fillText('SCL-90心理健康自评量表', 72, 142);
   ctx.fillStyle = 'rgba(255,255,255,.72)';
   ctx.font = '400 28px "PingFang SC", "Microsoft YaHei", sans-serif';
   ctx.fillText(`完成时间 ${formatReportDate(state.completedAt)}`, 72, 202);
@@ -713,20 +713,21 @@ function createReportCanvas(result, ranked) {
   ctx.font = '800 38px "PingFang SC", "Microsoft YaHei", sans-serif';
   ctx.fillText('本次自评摘要', 96, 375);
   const metrics = [
+    ['总分', String(result.totalScore), '原始总分 / 360'],
     ['GSI', result.gsi.toFixed(2), '总体均分 / 4'],
     ['PST', String(result.pst), '有困扰项目 / 90'],
     ['PSDI', result.psdi.toFixed(2), '阳性项目平均分']
   ];
   metrics.forEach(([label, value, note], index) => {
-    const x = 96 + index * 302;
+    const x = 96 + index * 226;
     ctx.fillStyle = '#044bb5';
-    ctx.font = '800 25px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.font = '800 23px "PingFang SC", "Microsoft YaHei", sans-serif';
     ctx.fillText(label, x, 440);
     ctx.fillStyle = '#0c1f3d';
-    ctx.font = '800 54px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.font = '800 48px "PingFang SC", "Microsoft YaHei", sans-serif';
     ctx.fillText(value, x, 505);
     ctx.fillStyle = '#627087';
-    ctx.font = '400 22px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.font = '400 19px "PingFang SC", "Microsoft YaHei", sans-serif';
     ctx.fillText(note, x, 548);
   });
 
@@ -868,6 +869,7 @@ function showResults() {
       <div class="report-meta"><p class="section-kicker">你的本次自评摘要</p><span>${formatReportDate(state.completedAt)}</span></div>
       <h2>过去7天的主观困扰画像</h2>
       <p class="result-intro">${topNames.length ? `在九个维度中，${topNames.join('、')}的原始均分相对靠前。这里展示的是个人本次结果的相对排序，不代表临床异常。` : '你在本次90项自评中没有报告相关困扰。若实际感受与结果不一致，可在状态变化后重新评估。'}</p>
+      <div class="total-score"><div><span>本次原始总分</span><strong>${result.totalScore}<em> / 360</em></strong></div><small>90题各按 0～4 分相加；仅用于本次自评，不代表临床诊断。</small></div>
       <div class="metric-grid"><div><span>GSI</span><strong>${result.gsi.toFixed(2)}</strong><small>总体均分 / 4</small></div><div><span>PST</span><strong>${result.pst}</strong><small>有困扰项目 / 90</small></div><div><span>PSDI</span><strong>${result.psdi.toFixed(2)}</strong><small>阳性项目平均分</small></div></div>
       <div class="no-norm-note"><strong>为什么没有T分？</strong><p>这套原创量表尚未建立正式常模，因此只展示可核算的原始分。网站不会用伪造T分判断“正常、异常或确诊”。</p></div>
     </section>
@@ -925,15 +927,12 @@ function showResults() {
     document.querySelector('#clear-history-button')?.remove();
   });
   document.querySelector('#restart-button')?.addEventListener('click', () => {
-    consent.checked = true;
-    startButton.disabled = false;
     startButton.textContent = '开始测试';
     startAssessment({ reset: true });
   });
   setView('result');
 }
 
-consent.addEventListener('change', () => { startButton.disabled = !consent.checked; });
 startButton.addEventListener('click', () => {
   if (isAuthorized || storageGet(sessionStorage, AUTH_SESSION_KEY) === '1') {
     isAuthorized = true;
@@ -949,8 +948,6 @@ backButton.addEventListener('click', () => {
 exitButton.addEventListener('click', () => {
   cancelPendingAdvance();
   startButton.textContent = state.answers.some((answer) => answer !== null) ? '继续测试' : '开始测试';
-  startButton.disabled = false;
-  consent.checked = true;
   setView('start');
 });
 document.addEventListener('keydown', (event) => {
@@ -970,7 +967,7 @@ function registerWebMcpTools() {
   webMcpRegistered = true;
   const lifecycle = new AbortController();
   const register = (tool) => Promise.resolve(context.registerTool(tool, { signal: lifecycle.signal })).catch(() => {});
-  register({ name: 'start_self_assessment', title: '开始心理困扰自评', description: '清空现有答案并从第1题开始90项自评。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute() { consent.checked = true; startButton.disabled = false; startAssessment({ reset: true }); return { status: 'started', totalQuestions: questions.length }; } });
+  register({ name: 'start_self_assessment', title: '开始心理困扰自评', description: '清空现有答案并从第1题开始90项自评。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute() { startAssessment({ reset: true }); return { status: 'started', totalQuestions: questions.length }; } });
   register({
     name: 'answer_assessment_items', title: '批量填写自评答案', description: '填写一道或多道题的分数。题号为1到90，分数为0到4。',
     inputSchema: { type: 'object', properties: { answers: { type: 'array', minItems: 1, maxItems: 90, items: { type: 'object', properties: { question: { type: 'integer', minimum: 1, maximum: 90 }, score: { type: 'integer', minimum: 0, maximum: 4 } }, required: ['question', 'score'], additionalProperties: false } } }, required: ['answers'], additionalProperties: false },
@@ -984,7 +981,7 @@ function registerWebMcpTools() {
     }
   });
   register({ name: 'get_assessment_progress', title: '读取自评进度', description: '读取当前已答题数、剩余题数和当前题号，不返回具体答案。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute() { const answered = state.answers.filter((value) => value !== null).length; const remaining = questions.length - answered; return { answered, remaining, currentQuestion: remaining === 0 ? null : state.current + 1 }; } });
-  register({ name: 'complete_self_assessment', title: '完成并查看自评结果', description: '在90题全部作答后计算原始分并打开结果页。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute() { const missing = state.answers.filter((value) => value === null).length; if (missing > 0) throw new Error(`仍有${missing}题未作答`); showResults(); const result = calculateResults(); return { status: 'completed', gsi: Number(result.gsi.toFixed(2)), pst: result.pst, psdi: Number(result.psdi.toFixed(2)), riskNotice: result.riskScore > 0 }; } });
+  register({ name: 'complete_self_assessment', title: '完成并查看自评结果', description: '在90题全部作答后计算原始分并打开结果页。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute() { const missing = state.answers.filter((value) => value === null).length; if (missing > 0) throw new Error(`仍有${missing}题未作答`); showResults(); const result = calculateResults(); return { status: 'completed', totalScore: result.totalScore, gsi: Number(result.gsi.toFixed(2)), pst: result.pst, psdi: Number(result.psdi.toFixed(2)), riskNotice: result.riskScore > 0 }; } });
 }
 
 async function initializeAuthorization() {
