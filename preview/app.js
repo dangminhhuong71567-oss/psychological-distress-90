@@ -714,7 +714,7 @@ function createReportCanvas(result, ranked) {
   ctx.font = '800 38px "PingFang SC", "Microsoft YaHei", sans-serif';
   ctx.fillText('本次自评摘要', 96, 375);
   const metrics = [
-    ['总分', String(result.totalScore), '原始总分 / 360'],
+    ['总分', String(result.totalScore), '本次自评原始分'],
     ['GSI', result.gsi.toFixed(2), '总体均分 / 4'],
     ['PST', String(result.pst), '有困扰项目 / 90'],
     ['PSDI', result.psdi.toFixed(2), '阳性项目平均分']
@@ -791,7 +791,7 @@ function createReportCanvas(result, ranked) {
   ctx.fillText('请正确理解这份结果', 72, 2080);
   ctx.fillStyle = '#627087';
   ctx.font = '400 20px "PingFang SC", "Microsoft YaHei", sans-serif';
-  wrapCanvasText(ctx, '本报告展示的是本次自评原始分和个人内部相对排序，不代表临床异常，也不能替代专业心理、精神科或医疗评估。', 72, 2120, 920, 31, 3);
+  wrapCanvasText(ctx, '本报告仅展示 0～4 分制下的原始指标。原创题目没有匹配的正式常模，无法计算 Pearson 官方 T 分；结果不代表临床异常或诊断。', 72, 2120, 920, 31, 3);
   return canvas;
 }
 
@@ -837,13 +837,19 @@ async function saveReportImage(result, ranked, button) {
   }
 }
 
-function renderScoreTable(ranked) {
+function renderScoreTable(result) {
+  const metrics = [
+    ...result.dimensionResults.map((item) => ({ name: item.name, value: item.raw.toFixed(2), unit: '维度均分' })),
+    { name: 'GSI · 总体严重程度', value: result.gsi.toFixed(2), unit: '总体均分' },
+    { name: 'PST · 阳性项目数', value: String(result.pst), unit: '项目数' },
+    { name: 'PSDI · 阳性项目困扰指数', value: result.psdi.toFixed(2), unit: '阳性项目均分' }
+  ];
   return `
     <div class="score-table-wrap">
       <table class="score-table">
-        <thead><tr><th>排序</th><th>维度</th><th>均分</th><th>本次位置</th></tr></thead>
-        <tbody>${ranked.map((item, index) => `
-          <tr><td>${String(index + 1).padStart(2, '0')}</td><td>${item.name}</td><td><strong>${item.raw.toFixed(2)}</strong> / 4</td><td>${index < 3 && item.raw > 0 ? '<span>相对靠前</span>' : '—'}</td></tr>`).join('')}</tbody>
+        <thead><tr><th>指标</th><th>原始分</th><th>T 分</th></tr></thead>
+        <tbody>${metrics.map((item) => `
+          <tr><td>${item.name}</td><td><strong>${item.value}</strong><small>${item.unit}</small></td><td class="t-score-unavailable">未计算</td></tr>`).join('')}</tbody>
       </table>
     </div>`;
 }
@@ -879,9 +885,9 @@ function showResults() {
       <div class="report-meta"><p class="section-kicker">你的本次自评摘要</p><span>${formatReportDate(state.completedAt)}</span></div>
       <h2>过去7天的主观困扰画像</h2>
       <p class="result-intro">${topNames.length ? `在九个维度中，${topNames.join('、')}的原始均分相对靠前。这里展示的是个人本次结果的相对排序，不代表临床异常。` : '你在本次90项自评中没有报告相关困扰。若实际感受与结果不一致，可在状态变化后重新评估。'}</p>
-      <div class="total-score"><div><span>本次原始总分</span><strong>${result.totalScore}<em> / 360</em></strong></div><small>90题各按 0～4 分相加；仅用于本次自评，不代表临床诊断。</small></div>
+      <div class="total-score"><div><span>本次自评原始分</span><strong>${result.totalScore}</strong></div><small>90题各按 0～4 分计；仅用于本次原创自评，不代表临床诊断。</small></div>
       <div class="metric-grid"><div><span>GSI</span><strong>${result.gsi.toFixed(2)}</strong><small>总体均分 / 4</small></div><div><span>PST</span><strong>${result.pst}</strong><small>有困扰项目 / 90</small></div><div><span>PSDI</span><strong>${result.psdi.toFixed(2)}</strong><small>阳性项目平均分</small></div></div>
-      <div class="no-norm-note"><strong>为什么没有T分？</strong><p>这套原创量表尚未建立正式常模，因此只展示可核算的原始分。网站不会用伪造T分判断“正常、异常或确诊”。</p></div>
+      <div class="no-norm-note"><strong>T 分是什么？为什么这里不显示数值？</strong><p>T 分是将原始分与指定人群常模比较后的标准分；同一原始分在不同常模下可能对应不同 T 分。本站题目为原创改写，未使用 Pearson 官方题本及匹配常模，无法可靠换算 T 分，也不会套用 T≥63 的筛查线。</p></div>
     </section>
     <section class="result-card radar-card">
       <div class="section-heading"><div><p class="section-kicker">结果总览</p><h2>九维困扰画像</h2></div><span class="range-key">0 — 4</span></div>
@@ -892,8 +898,9 @@ function showResults() {
       </div>
     </section>
     <section class="result-card score-table-card">
-      <div class="section-heading"><div><p class="section-kicker">九维明细</p><h2>原始均分与内部排序</h2></div><span class="range-key">非临床排名</span></div>
-      ${renderScoreTable(ranked)}
+      <div class="section-heading"><div><p class="section-kicker">计分明细</p><h2>原始分与 T 分</h2></div><span class="range-key">T 分未计算</span></div>
+      <p>九个维度及 GSI、PST、PSDI 的原始指标列在下方；T 分需匹配的正式常模，不能由原始分直接推断。</p>
+      ${renderScoreTable(result)}
     </section>
     <section class="result-card">
       <div class="section-heading"><div><p class="section-kicker">维度解读</p><h2>每一项分数代表什么</h2></div><span class="range-key">详细报告</span></div>
