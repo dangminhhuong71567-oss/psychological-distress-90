@@ -401,7 +401,8 @@ function advance() {
 }
 
 function showImmediateSupport(score) {
-  const urgent = score >= 2;
+  const directSelfHarmThought = state.current === 32;
+  const urgent = directSelfHarmThought && score >= 2;
   supportSheet.hidden = false;
   supportSheet.innerHTML = `
     <div class="sheet-backdrop"></div>
@@ -409,7 +410,7 @@ function showImmediateSupport(score) {
       <span class="support-icon" aria-hidden="true">+</span>
       <p class="section-kicker">优先关注安全</p>
       <h2 id="support-title">${urgent ? '建议尽快寻求支持' : '这项回答值得额外关注'}</h2>
-      <p>${urgent ? '你报告了较明显的自伤或轻生相关想法。这项信息比普通测试分数更需要优先关注。' : '你报告了轻微的自伤或轻生相关想法。请认真观察它是否持续、增强或开始影响你的安全。'}</p>
+      <p>${directSelfHarmThought ? '你在“不想继续活下去或伤害自己”的题目中选择了“' + optionLabels[score] + '”。这项回答比普通测试分数更需要优先关注。' : '你在“反复想到死亡或生命结束”的题目中选择了“' + optionLabels[score] + '”。这不等同于已经有自伤意图，但值得认真关注它是否持续或让你感到不安全。'}</p>
       <div class="support-actions">
         <strong>如果这些想法目前仍存在、正在增强，或已经出现具体计划：</strong>
         <ol><li>立即联系一位可信赖的人，请对方陪在你身边。</li><li>远离可能用于伤害自己的物品或环境。</li><li>尽快联系当地紧急医疗服务、危机干预资源或精神科专业人员。</li></ol>
@@ -860,8 +861,17 @@ function showResults() {
   const topCodes = new Set(ranked.slice(0, 3).filter((item) => item.raw > 0).map((item) => item.code));
   const topNames = ranked.slice(0, 3).filter((item) => item.raw > 0).map((item) => item.name);
   const previous = getHistory().find((item) => item.createdAt !== state.completedAt);
-  const riskCard = result.riskScore > 0 ? `
-    <section class="result-card risk-card"><p class="section-kicker">优先关注</p><h2>${result.riskScore >= 2 ? '建议尽快寻求支持' : '请额外关注自伤或轻生相关想法'}</h2><p>${result.riskScore >= 2 ? '这项结果需要优先于普通分数处理。如果相关想法仍存在、越来越强烈或已经出现具体计划，请立即联系可信赖的人陪伴，并尽快联系当地紧急医疗服务、危机干预资源或精神科专业人员。' : '如果这类想法持续、增强或开始影响安全，请尽快告诉可信赖的人，并考虑联系专业心理或精神科支持。'}</p></section>` : '';
+  const safetyItems = [33, 60].filter((number) => state.answers[number - 1] > 0);
+  const directSelfHarmScore = state.answers[32];
+  const riskTitle = directSelfHarmScore >= 2 ? '建议尽快寻求支持' : directSelfHarmScore > 0 ? '请关注自伤相关想法' : '请关注死亡相关想法';
+  const riskCard = safetyItems.length ? `
+    <section class="result-card risk-card">
+      <p class="section-kicker">优先关注 · 触发提醒的回答</p>
+      <h2>${riskTitle}</h2>
+      <p>以下是你本次作答中需要优先留意的具体项目：</p>
+      <ul class="risk-response-list">${safetyItems.map((number) => `<li><span>第${number}题</span><strong>${questions[number - 1]}</strong><em>你的选择：${optionLabels[state.answers[number - 1]]}（${state.answers[number - 1]} / 4）</em></li>`).join('')}</ul>
+      <p>${directSelfHarmScore > 0 ? '第33题涉及不想继续活下去或伤害自己的念头，应优先于普通分数处理。' : '第60题涉及死亡相关想法；单独出现这一回答，不等同于有自伤意图。'}如果这些想法持续、增强，或你觉得自己可能无法保持安全，请立即联系可信赖的人陪伴，并尽快联系当地紧急医疗服务、危机干预资源或精神科专业人员。</p>
+    </section>` : '';
 
   resultView.innerHTML = `
     ${riskCard}
