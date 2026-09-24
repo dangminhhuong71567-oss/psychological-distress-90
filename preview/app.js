@@ -714,7 +714,7 @@ function createReportCanvas(result, ranked) {
   ctx.font = '800 38px "PingFang SC", "Microsoft YaHei", sans-serif';
   ctx.fillText('本次自评摘要', 96, 375);
   const metrics = [
-    ['本次自评分数', String(result.totalScore), '90题按0～4分计'],
+    ['本次测评分数', String(result.totalScore), '90题按0～4分计'],
     ['GSI', result.gsi.toFixed(2), '总体均分 / 4'],
     ['PST', String(result.pst), '有困扰项目 / 90'],
     ['PSDI', result.psdi === null ? '—' : result.psdi.toFixed(2), '阳性项目平均分']
@@ -791,7 +791,7 @@ function createReportCanvas(result, ranked) {
   ctx.fillText('请正确理解这份结果', 72, 2080);
   ctx.fillStyle = '#627087';
   ctx.font = '400 20px "PingFang SC", "Microsoft YaHei", sans-serif';
-  wrapCanvasText(ctx, '90题参照 SCL-90 的 0～4 分制。题目为原创改写，仅用于本次自评，不代表临床诊断；无匹配常模，不提供 Pearson 官方 T 分。', 72, 2120, 920, 31, 3);
+  wrapCanvasText(ctx, '分数来自SCL-90的0-4分制，结果只反映你过去7天的主观心理和身体困扰体验，不代表临床诊断，若困扰持续存在、明显影响生活，或出现自伤、自杀等安全风险，请及时寻求专业心理、精神科或医疗支持。', 72, 2120, 920, 31, 3);
   return canvas;
 }
 
@@ -847,7 +847,7 @@ function renderScoreTable(result) {
   return `
     <div class="score-table-wrap">
       <table class="score-table">
-        <thead><tr><th>指标</th><th>本次自评分数</th></tr></thead>
+        <thead><tr><th>指标</th><th>本次测评分数</th></tr></thead>
         <tbody>${metrics.map((item) => `
           <tr><td>${item.name}</td><td><strong>${item.value}</strong><small>${item.unit}</small></td></tr>`).join('')}</tbody>
       </table>
@@ -885,7 +885,7 @@ function showResults() {
       <div class="report-meta"><p class="section-kicker">你的本次自评摘要</p><span>${formatReportDate(state.completedAt)}</span></div>
       <h2>过去7天的主观困扰画像</h2>
       <p class="result-intro">${topNames.length ? `在九个维度中，${topNames.join('、')}的原始均分相对靠前。这里展示的是个人本次结果的相对排序，不代表临床异常。` : '你在本次90项自评中没有报告相关困扰。若实际感受与结果不一致，可在状态变化后重新评估。'}</p>
-      <div class="total-score"><div class="total-score-value"><span>本次自评分数</span><strong>${result.totalScore}</strong></div><div class="total-score-spacer" aria-hidden="true"></div><p class="total-score-note">90题参照 SCL-90 的 0～4 分制；仅用于本次自评，不代表临床诊断。</p></div>
+      <div class="total-score"><span>本次测评分数</span><strong>${result.totalScore}</strong></div>
       <div class="metric-grid"><div><span>GSI</span><strong>${result.gsi.toFixed(2)}</strong><small>总体均分 / 4</small></div><div><span>PST</span><strong>${result.pst}</strong><small>有困扰项目 / 90</small></div><div><span>PSDI</span><strong>${result.psdi === null ? '—' : result.psdi.toFixed(2)}</strong><small>阳性项目平均分</small></div></div>
     </section>
     <section class="result-card radar-card">
@@ -917,31 +917,13 @@ function showResults() {
     </section>
     <section class="result-card guidance-card">
       <p class="section-kicker">如何看待结果</p><h2>它是一份线索，不是一张诊断书</h2>
-      <p>结果只反映你过去7天的主观心理和身体困扰体验。本站题目为原创改写，未使用 Pearson 官方题本及适配常模，因此不能换算其 T 分，也不能套用官方筛查线。若困扰持续存在、明显影响生活，或出现自伤、自杀等安全风险，请及时寻求专业心理、精神科或医疗支持。</p>
+      <p>分数来自SCL-90的0-4分制，结果只反映你过去7天的主观心理和身体困扰体验，不代表临床诊断，若困扰持续存在、明显影响生活，或出现自伤、自杀等安全风险，请及时寻求专业心理、精神科或医疗支持。</p>
       <div class="report-actions">
-        <button id="save-image-button" class="primary-button" type="button">查看并保存结果长图</button>
-        <button id="save-history-button" class="secondary-button" type="button">保存到本机作前后测</button>
-        <button id="print-report-button" class="secondary-button" type="button">打印或存为PDF</button>
+        <button id="save-image-button" class="primary-button" type="button">查看并保存结果</button>
+        <button id="restart-button" class="secondary-button" type="button">重新作答</button>
       </div>
-      <p id="history-feedback" class="history-feedback" aria-live="polite">本机记录由你主动保存，最多保留5次，不会上传。</p>
-      ${getHistory().length ? '<button id="clear-history-button" class="clear-history-button" type="button">清除本机前后测记录</button>' : ''}
-      <button id="restart-button" class="secondary-button" type="button">重新作答</button>
     </section>`;
   document.querySelector('#save-image-button')?.addEventListener('click', (event) => saveReportImage(result, ranked, event.currentTarget));
-  document.querySelector('#print-report-button')?.addEventListener('click', () => window.print());
-  document.querySelector('#save-history-button')?.addEventListener('click', (event) => {
-    saveResultHistory(result);
-    event.currentTarget.disabled = true;
-    event.currentTarget.textContent = '本次记录已保存';
-    const feedback = document.querySelector('#history-feedback');
-    if (feedback) feedback.textContent = '已保存到这个浏览器。下一次完成测评后会自动显示对比。';
-  });
-  document.querySelector('#clear-history-button')?.addEventListener('click', () => {
-    localStorage.removeItem(RESULT_HISTORY_KEY);
-    const feedback = document.querySelector('#history-feedback');
-    if (feedback) feedback.textContent = '本机前后测记录已清除。';
-    document.querySelector('#clear-history-button')?.remove();
-  });
   document.querySelector('#restart-button')?.addEventListener('click', () => {
     startButton.textContent = '开始测试';
     startAssessment({ reset: true });
