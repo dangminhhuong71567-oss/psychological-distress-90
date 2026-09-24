@@ -791,7 +791,7 @@ function createReportCanvas(result, ranked) {
   ctx.fillText('请正确理解这份结果', 72, 2080);
   ctx.fillStyle = '#627087';
   ctx.font = '400 20px "PingFang SC", "Microsoft YaHei", sans-serif';
-  wrapCanvasText(ctx, '90题按 0～4 分计。题目为原创改写，仅用于本次自评，不代表临床诊断；无匹配常模，不提供 Pearson 官方 T 分。', 72, 2120, 920, 31, 3);
+  wrapCanvasText(ctx, '90题参照 SCL-90 的 0～4 分制。题目为原创改写，仅用于本次自评，不代表临床诊断；无匹配常模，不提供 Pearson 官方 T 分。', 72, 2120, 920, 31, 3);
   return canvas;
 }
 
@@ -885,7 +885,7 @@ function showResults() {
       <div class="report-meta"><p class="section-kicker">你的本次自评摘要</p><span>${formatReportDate(state.completedAt)}</span></div>
       <h2>过去7天的主观困扰画像</h2>
       <p class="result-intro">${topNames.length ? `在九个维度中，${topNames.join('、')}的原始均分相对靠前。这里展示的是个人本次结果的相对排序，不代表临床异常。` : '你在本次90项自评中没有报告相关困扰。若实际感受与结果不一致，可在状态变化后重新评估。'}</p>
-      <div class="total-score"><div class="total-score-value"><span>本次自评分数</span><strong>${result.totalScore}</strong></div><div class="total-score-spacer" aria-hidden="true"></div><p class="total-score-note">90题按 0～4 分计，仅用于本次原创自评，不代表临床诊断。</p></div>
+      <div class="total-score"><div class="total-score-value"><span>本次自评分数</span><strong>${result.totalScore}</strong></div><div class="total-score-spacer" aria-hidden="true"></div><p class="total-score-note">90题参照 SCL-90 的 0～4 分制；仅用于本次自评，不代表临床诊断。</p></div>
       <div class="metric-grid"><div><span>GSI</span><strong>${result.gsi.toFixed(2)}</strong><small>总体均分 / 4</small></div><div><span>PST</span><strong>${result.pst}</strong><small>有困扰项目 / 90</small></div><div><span>PSDI</span><strong>${result.psdi === null ? '—' : result.psdi.toFixed(2)}</strong><small>阳性项目平均分</small></div></div>
     </section>
     <section class="result-card radar-card">
