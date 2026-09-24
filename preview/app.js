@@ -429,7 +429,7 @@ function calculateResults() {
   const totalScore = state.answers.reduce((sum, score) => sum + Number(score || 0), 0);
   const pst = state.answers.filter((score) => Number(score) > 0).length;
   const gsi = totalScore / questions.length;
-  const psdi = pst > 0 ? totalScore / pst : 0;
+  const psdi = pst > 0 ? totalScore / pst : null;
   const dimensionResults = dimensions.map((dimension) => {
     const sum = dimension.items.reduce((subtotal, itemNumber) => subtotal + state.answers[itemNumber - 1], 0);
     return { ...dimension, raw: sum / dimension.items.length };
@@ -471,7 +471,7 @@ function serializeResult(result) {
     totalScore: result.totalScore,
     gsi: Number(result.gsi.toFixed(3)),
     pst: result.pst,
-    psdi: Number(result.psdi.toFixed(3)),
+    psdi: result.psdi === null ? null : Number(result.psdi.toFixed(3)),
     dimensions: Object.fromEntries(result.dimensionResults.map((item) => [item.code, Number(item.raw.toFixed(3))]))
   };
 }
@@ -600,7 +600,7 @@ function renderDimension(result, relativeTop) {
         <div><span class="dimension-code">${result.code}</span><h3>${result.name}</h3></div>
         <div class="dimension-score"><strong>${result.raw.toFixed(2)}</strong><span>/ 4</span></div>
       </div>
-      <div class="score-track" aria-label="${result.name}本次自评均分 ${result.raw.toFixed(2)}，满分4分"><span style="width:${width}%;background:${result.color}"></span></div>
+      <div class="score-track" aria-label="${result.name}本次自评均分 ${result.raw.toFixed(2)}，评分范围0到4分"><span style="width:${width}%;background:${result.color}"></span></div>
       ${relativeTop ? '<p class="relative-flag">本次九维结果中相对靠前</p>' : ''}
       <p>${result.description}</p>
     </article>`;
@@ -714,10 +714,10 @@ function createReportCanvas(result, ranked) {
   ctx.font = '800 38px "PingFang SC", "Microsoft YaHei", sans-serif';
   ctx.fillText('本次自评摘要', 96, 375);
   const metrics = [
-    ['总分', String(result.totalScore), '本次自评原始分'],
+    ['本次自评分数', String(result.totalScore), '90题按0～4分计'],
     ['GSI', result.gsi.toFixed(2), '总体均分 / 4'],
     ['PST', String(result.pst), '有困扰项目 / 90'],
-    ['PSDI', result.psdi.toFixed(2), '阳性项目平均分']
+    ['PSDI', result.psdi === null ? '—' : result.psdi.toFixed(2), '阳性项目平均分']
   ];
   metrics.forEach(([label, value, note], index) => {
     const x = 96 + index * 226;
@@ -791,7 +791,7 @@ function createReportCanvas(result, ranked) {
   ctx.fillText('请正确理解这份结果', 72, 2080);
   ctx.fillStyle = '#627087';
   ctx.font = '400 20px "PingFang SC", "Microsoft YaHei", sans-serif';
-  wrapCanvasText(ctx, '本报告仅展示 0～4 分制下的原始指标。原创题目没有匹配的正式常模，无法计算 Pearson 官方 T 分；结果不代表临床异常或诊断。', 72, 2120, 920, 31, 3);
+  wrapCanvasText(ctx, '90题按 0～4 分计。题目为原创改写，仅用于本次自评，不代表临床诊断；无匹配常模，不提供 Pearson 官方 T 分。', 72, 2120, 920, 31, 3);
   return canvas;
 }
 
@@ -842,14 +842,14 @@ function renderScoreTable(result) {
     ...result.dimensionResults.map((item) => ({ name: item.name, value: item.raw.toFixed(2), unit: '维度均分' })),
     { name: 'GSI · 总体严重程度', value: result.gsi.toFixed(2), unit: '总体均分' },
     { name: 'PST · 阳性项目数', value: String(result.pst), unit: '项目数' },
-    { name: 'PSDI · 阳性项目困扰指数', value: result.psdi.toFixed(2), unit: '阳性项目均分' }
+    { name: 'PSDI · 阳性项目困扰指数', value: result.psdi === null ? '—' : result.psdi.toFixed(2), unit: '阳性项目均分' }
   ];
   return `
     <div class="score-table-wrap">
       <table class="score-table">
-        <thead><tr><th>指标</th><th>原始分</th><th>T 分</th></tr></thead>
+        <thead><tr><th>指标</th><th>本次自评分数</th></tr></thead>
         <tbody>${metrics.map((item) => `
-          <tr><td>${item.name}</td><td><strong>${item.value}</strong><small>${item.unit}</small></td><td class="t-score-unavailable">未计算</td></tr>`).join('')}</tbody>
+          <tr><td>${item.name}</td><td><strong>${item.value}</strong><small>${item.unit}</small></td></tr>`).join('')}</tbody>
       </table>
     </div>`;
 }
@@ -885,9 +885,8 @@ function showResults() {
       <div class="report-meta"><p class="section-kicker">你的本次自评摘要</p><span>${formatReportDate(state.completedAt)}</span></div>
       <h2>过去7天的主观困扰画像</h2>
       <p class="result-intro">${topNames.length ? `在九个维度中，${topNames.join('、')}的原始均分相对靠前。这里展示的是个人本次结果的相对排序，不代表临床异常。` : '你在本次90项自评中没有报告相关困扰。若实际感受与结果不一致，可在状态变化后重新评估。'}</p>
-      <div class="total-score"><div><span>本次自评原始分</span><strong>${result.totalScore}</strong></div><small>90题各按 0～4 分计；仅用于本次原创自评，不代表临床诊断。</small></div>
-      <div class="metric-grid"><div><span>GSI</span><strong>${result.gsi.toFixed(2)}</strong><small>总体均分 / 4</small></div><div><span>PST</span><strong>${result.pst}</strong><small>有困扰项目 / 90</small></div><div><span>PSDI</span><strong>${result.psdi.toFixed(2)}</strong><small>阳性项目平均分</small></div></div>
-      <div class="no-norm-note"><strong>T 分是什么？为什么这里不显示数值？</strong><p>T 分是将原始分与指定人群常模比较后的标准分；同一原始分在不同常模下可能对应不同 T 分。本站题目为原创改写，未使用 Pearson 官方题本及匹配常模，无法可靠换算 T 分，也不会套用 T≥63 的筛查线。</p></div>
+      <div class="total-score"><div class="total-score-value"><span>本次自评分数</span><strong>${result.totalScore}</strong></div><div class="total-score-spacer" aria-hidden="true"></div><p class="total-score-note">90题按 0～4 分计，仅用于本次原创自评，不代表临床诊断。</p></div>
+      <div class="metric-grid"><div><span>GSI</span><strong>${result.gsi.toFixed(2)}</strong><small>总体均分 / 4</small></div><div><span>PST</span><strong>${result.pst}</strong><small>有困扰项目 / 90</small></div><div><span>PSDI</span><strong>${result.psdi === null ? '—' : result.psdi.toFixed(2)}</strong><small>阳性项目平均分</small></div></div>
     </section>
     <section class="result-card radar-card">
       <div class="section-heading"><div><p class="section-kicker">结果总览</p><h2>九维困扰画像</h2></div><span class="range-key">0 — 4</span></div>
@@ -898,8 +897,8 @@ function showResults() {
       </div>
     </section>
     <section class="result-card score-table-card">
-      <div class="section-heading"><div><p class="section-kicker">计分明细</p><h2>原始分与 T 分</h2></div><span class="range-key">T 分未计算</span></div>
-      <p>九个维度及 GSI、PST、PSDI 的原始指标列在下方；T 分需匹配的正式常模，不能由原始分直接推断。</p>
+      <div class="section-heading"><div><p class="section-kicker">计分明细</p><h2>九维与总体指标</h2></div><span class="range-key">0～4 分制</span></div>
+      <p>九个维度和 GSI 为平均分，PST 为选择1～4分的题目数，PSDI 为这些题目的平均分。</p>
       ${renderScoreTable(result)}
     </section>
     <section class="result-card">
@@ -918,7 +917,7 @@ function showResults() {
     </section>
     <section class="result-card guidance-card">
       <p class="section-kicker">如何看待结果</p><h2>它是一份线索，不是一张诊断书</h2>
-      <p>结果只反映你过去7天的主观心理和身体困扰体验。单个维度分数较高不代表患有对应疾病。若困扰持续存在、明显影响生活，或出现自伤、自杀等安全风险，请及时寻求专业心理、精神科或医疗支持。</p>
+      <p>结果只反映你过去7天的主观心理和身体困扰体验。本站题目为原创改写，未使用 Pearson 官方题本及适配常模，因此不能换算其 T 分，也不能套用官方筛查线。若困扰持续存在、明显影响生活，或出现自伤、自杀等安全风险，请及时寻求专业心理、精神科或医疗支持。</p>
       <div class="report-actions">
         <button id="save-image-button" class="primary-button" type="button">查看并保存结果长图</button>
         <button id="save-history-button" class="secondary-button" type="button">保存到本机作前后测</button>
@@ -998,7 +997,7 @@ function registerWebMcpTools() {
     }
   });
   register({ name: 'get_assessment_progress', title: '读取自评进度', description: '读取当前已答题数、剩余题数和当前题号，不返回具体答案。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, untrustedContentHint: false }, execute() { const answered = state.answers.filter((value) => value !== null).length; const remaining = questions.length - answered; return { answered, remaining, currentQuestion: remaining === 0 ? null : state.current + 1 }; } });
-  register({ name: 'complete_self_assessment', title: '完成并查看自评结果', description: '在90题全部作答后计算原始分并打开结果页。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute() { const missing = state.answers.filter((value) => value === null).length; if (missing > 0) throw new Error(`仍有${missing}题未作答`); showResults(); const result = calculateResults(); return { status: 'completed', totalScore: result.totalScore, gsi: Number(result.gsi.toFixed(2)), pst: result.pst, psdi: Number(result.psdi.toFixed(2)), riskNotice: result.riskScore > 0 }; } });
+  register({ name: 'complete_self_assessment', title: '完成并查看自评结果', description: '在90题全部作答后计算原始分并打开结果页。', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false, untrustedContentHint: false }, execute() { const missing = state.answers.filter((value) => value === null).length; if (missing > 0) throw new Error(`仍有${missing}题未作答`); showResults(); const result = calculateResults(); return { status: 'completed', totalScore: result.totalScore, gsi: Number(result.gsi.toFixed(2)), pst: result.pst, psdi: result.psdi === null ? null : Number(result.psdi.toFixed(2)), riskNotice: result.riskScore > 0 }; } });
 }
 
 async function initializeAuthorization() {
