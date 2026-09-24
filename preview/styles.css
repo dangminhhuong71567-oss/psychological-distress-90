@@ -307,6 +307,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .result-card { padding: 1.2rem; border: 1px solid var(--line); border-radius: 1.35rem; background: var(--panel); box-shadow: 0 10px 35px rgba(12,31,61,.08); }
 .risk-card { border-color: #ffc9cf; background: var(--danger-soft); }
 .risk-card .section-kicker { color: var(--danger); }
+.risk-response-list { display: grid; gap: .55rem; margin: .85rem 0; padding: 0; list-style: none; }
+.risk-response-list li { display: grid; gap: .3rem; padding: .75rem .85rem; border: 1px solid #ffd4d9; border-radius: .8rem; background: #fff; }
+.risk-response-list span { color: var(--danger); font-size: .78rem; font-weight: 800; }
+.risk-response-list strong { color: var(--brand-dark); font-size: .9rem; line-height: 1.5; }
+.risk-response-list em { color: #8e3b48; font-size: .82rem; font-style: normal; font-weight: 700; }
 .risk-card h2, .result-card h2 { margin: .2rem 0 .65rem; color: var(--brand-dark); font-size: 1.35rem; line-height: 1.35; }
 .risk-card p, .result-card > p, .dimension-card > p { color: var(--muted); line-height: 1.72; }
 .result-hero { overflow: hidden; position: relative; background: linear-gradient(145deg, #ffffff 35%, #f1f5ff); }
